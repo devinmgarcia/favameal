@@ -8,16 +8,7 @@ from rest_framework.response import Response
 from rest_framework import serializers
 from favamealapi.models import Meal, MealRating, Restaurant, FavoriteMeal
 from favamealapi.views.restaurant import RestaurantSerializer
-
-
-class MealSerializer(serializers.ModelSerializer):
-    """JSON serializer for meals"""
-    restaurant = RestaurantSerializer(many=False)
-
-    class Meta:
-        model = Meal
-        fields = ('id', 'name', 'restaurant', 'user_rating', 'avg_rating')
-
+from django.contrib.auth.models import User
 
 class MealView(ViewSet):
     """ViewSet for handling meal requests"""
@@ -57,7 +48,7 @@ class MealView(ViewSet):
             # TODO: Assign a value to the `is_favorite` property of requested meal
 
 
-            serializer = RestaurantSerializer(
+            serializer = MealSerializer(
                 meal, context={'request': request})
             return Response(serializer.data)
         except Exception as ex:
@@ -88,8 +79,60 @@ class MealView(ViewSet):
     #           "rating": 3
     #       }
 
-
-
-
     # TODO: Add a custom action named `star` that will allow a client to send a
     #  POST and a DELETE request to /meals/3/star.
+
+    @action(methods=['post', 'delete'], detail=True)
+    def star(self, request, pk=None):
+        """Managing users favorite meals"""
+        # Django uses the `Authorization` header to determine
+        # which user is making the request to sign up
+
+        user = User.objects.get(username=request.auth.user)
+        
+        try:
+            # Handle the case if the client specifies a game
+            # that doesn't exist
+            meal = Meal.objects.get(pk=pk)
+        except Meal.DoesNotExist:
+            return Response(
+                {'message': 'Meal does not exist.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # A gamer wants to sign up for an event
+        if request.method == "POST":
+            try:
+                # Using the attendees field on the event makes it simple to add a gamer to the event
+                # .add(gamer) will insert into the join table a new row the gamer_id and the event_id
+                meal.favorite.add(user)
+                return Response({}, status=status.HTTP_201_CREATED)
+            except Exception as ex:
+                return Response({'message': ex.args[0]})
+
+        # User wants to leave a previously joined event
+        elif request.method == "DELETE":
+            try:
+                # The many to many relationship has a .remove method that removes the gamer from the attendees list
+                # The method deletes the row in the join table that has the gamer_id and event_id
+                meal.favorite.remove(user)
+                return Response(None, status=status.HTTP_204_NO_CONTENT)
+            except Exception as ex:
+                return Response({'message': ex.args[0]})
+
+class MealSerializer(serializers.ModelSerializer):
+    """JSON serializer for meals"""
+    # restaurant = RestaurantSerializer(many=False)
+
+    class Meta:
+        model = Meal
+        fields = ('id', 'name', 'restaurant', 'favorite', 'starred')
+        depth = 2
+
+class FaveSerializer(serializers.ModelSerializer):
+    """JSON serializer for favorites"""
+
+    class Meta:
+        model = FavoriteMeal
+        fields = ('meal',)
+        depth = 2
